@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>姫路 熱中症ウォッチ（アメダス）</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#F4F7F8; --panel:#FFFFFF; --ink:#16303A; --ink-soft:#5B7480; --line:#DCE6EA;
+  /* 環境省 暑さ指数(WBGT)公式配色 */
+  --lv-danger:#FF2800; --lv-severe:#FF9600; --lv-warn:#FAF500; --lv-caution:#A0D2FF; --lv-safe:#218CFF;
+  --num-font:"SF Mono","Consolas","Menlo",monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font-family:"Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic",system-ui,sans-serif;line-height:1.6;padding-bottom:60px}
+.wrap{max-width:1000px;margin:0 auto;padding:0 16px}
+header{padding:28px 0 18px;display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;justify-content:space-between}
+header h1{font-size:1.35rem;letter-spacing:.04em}
+header .loc{font-size:.8rem;color:var(--ink-soft)}
+.btn{border:0;border-radius:8px;padding:10px 18px;font-size:.9rem;cursor:pointer;font-family:inherit}
+.btn-primary{background:var(--ink);color:#fff}
+.btn-primary:disabled{opacity:.5;cursor:wait}
+.btn:focus-visible{outline:2px solid var(--lv-safe);outline-offset:2px}
+#status{font-size:.8rem;color:var(--ink-soft);min-height:1.2em;margin-bottom:10px}
+#status.err{color:var(--lv-danger)}
+
+/* 本日サマリー */
+.today{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:20px}
+.today .band{height:10px;background:var(--line)}
+.today .inner{padding:18px 22px}
+.today .level{font-weight:700;font-size:1.05rem;margin-bottom:14px}
+.today .level small{display:block;font-weight:400;font-size:.72rem;color:var(--ink-soft)}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:18px 32px}
+.metric .l{font-size:.7rem;color:var(--ink-soft);margin-bottom:2px}
+.metric .v{font-family:var(--num-font);font-size:1.3rem;font-weight:700;letter-spacing:.02em}
+.metric .v .unit{font-size:.75rem;font-weight:400;margin-left:2px}
+.metric .sub{font-size:.72rem;color:var(--ink-soft);font-family:var(--num-font)}
+
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:20px}
+.panel h2{font-size:.95rem;margin-bottom:4px;letter-spacing:.03em}
+.panel .sub{font-size:.72rem;color:var(--ink-soft);margin-bottom:12px}
+.chart-box{position:relative;height:280px}
+@media(max-width:600px){.chart-box{height:230px}}
+
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:.72rem;color:var(--ink-soft);margin-top:12px}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.legend i{width:12px;height:12px;border-radius:3px;display:inline-block;border:1px solid rgba(0,0,0,.1)}
+
+/* 記録テーブル */
+table{width:100%;border-collapse:collapse;font-size:.84rem}
+th,td{padding:10px 14px;text-align:right;white-space:nowrap}
+thead th{font-size:.72rem;color:var(--ink-soft);font-weight:600;border-bottom:1px solid var(--line)}
+thead tr.grp th{border-bottom:none;padding-bottom:2px}
+thead tr.grp th.gline{border-bottom:2px solid var(--line)}
+tbody td{border-bottom:1px solid var(--line)}
+td:first-child,th:first-child{text-align:left}
+td.num{font-family:var(--num-font)}
+td.sep,th.sep{border-left:1px solid var(--line)}
+.chip{display:inline-block;width:14px;height:14px;border-radius:4px;vertical-align:-2px;border:1px solid rgba(0,0,0,.12)}
+.prov{font-size:.65rem;color:var(--ink-soft)}
+.del{background:none;border:0;color:var(--ink-soft);cursor:pointer;font-size:.75rem;padding:2px 6px}
+.del:hover{color:var(--lv-danger)}
+.table-scroll{overflow-x:auto}
+
+/* 手入力フォーム */
+details{margin-top:8px}
+summary{cursor:pointer;font-size:.82rem;color:var(--ink-soft)}
+.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:12px}
+.form-grid label{font-size:.7rem;color:var(--ink-soft);display:block}
+.form-grid input{width:100%;padding:7px 8px;border:1px solid var(--line);border-radius:6px;font-family:var(--num-font);font-size:.85rem}
+.form-actions{margin-top:12px}
+.note{font-size:.72rem;color:var(--ink-soft);margin-top:12px;line-height:1.7}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>熱中症ウォッチ</h1>
+      <div class="loc">データ: 気象庁アメダス 姫路（観測所 63383・特別地域気象観測所）10分毎観測値</div>
+    </div>
+    <button class="btn btn-primary" id="fetchBtn">最新データを取得</button>
+  </header>
+  <div id="status"></div>
+
+  <section class="today" id="todayCard" hidden>
+    <div class="band" id="todayBand"></div>
+    <div class="inner">
+      <div class="level">
+        <span id="todayLevel">—</span>
+        <small id="todayDate"></small>
+        <small id="todayAdvice"></small>
+      </div>
+      <div class="metrics" id="todayMetrics"></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>気温の推移</h2>
+    <div class="sub">日別の最高・最低・10時・15時の気温（℃）</div>
+    <div class="chart-box"><canvas id="tempChart"></canvas></div>
+  </section>
+
+  <section class="panel">
+    <h2>湿度の推移</h2>
+    <div class="sub">日別の10時・15時の相対湿度（%）</div>
+    <div class="chart-box"><canvas id="humChart"></canvas></div>
+  </section>
+
+  <section class="panel">
+    <h2>暑さ指数（推定WBGT）の推移</h2>
+    <div class="sub">その日の10分毎の気温・湿度から算出した推定WBGTの日最大値。バーの色が警戒レベルです（近似式による目安で、実測値ではありません）</div>
+    <div class="chart-box"><canvas id="wbgtChart"></canvas></div>
+    <div class="legend">
+      <span><i style="background:var(--lv-danger)"></i>危険（31以上）</span>
+      <span><i style="background:var(--lv-severe)"></i>厳重警戒（28〜31）</span>
+      <span><i style="background:var(--lv-warn)"></i>警戒（25〜28）</span>
+      <span><i style="background:var(--lv-caution)"></i>注意（21〜25）</span>
+      <span><i style="background:var(--lv-safe)"></i>ほぼ安全（21未満）</span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>日別記録</h2>
+    <div class="table-scroll">
+    <table>
+      <thead>
+        <tr class="grp">
+          <th rowspan="2">日付</th><th rowspan="2">警戒</th>
+          <th colspan="2" class="sep gline">10時</th>
+          <th colspan="2" class="sep gline">15時</th>
+          <th colspan="2" class="sep gline">最高気温</th>
+          <th colspan="2" class="sep gline">最低気温</th>
+          <th rowspan="2"></th>
+        </tr>
+        <tr>
+          <th class="sep">気温</th><th>湿度</th>
+          <th class="sep">気温</th><th>湿度</th>
+          <th class="sep">気温</th><th>時刻</th>
+          <th class="sep">気温</th><th>時刻</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    </div>
+
+    <details>
+      <summary>手動で記録を追加・修正する</summary>
+      <div class="form-grid">
+        <div><label>日付</label><input type="date" id="fDate"></div>
+        <div><label>10時 気温（℃）</label><input type="number" step="0.1" id="fT10"></div>
+        <div><label>10時 湿度（%）</label><input type="number" step="1" id="fH10"></div>
+        <div><label>15時 気温（℃）</label><input type="number" step="0.1" id="fT15"></div>
+        <div><label>15時 湿度（%）</label><input type="number" step="1" id="fH15"></div>
+        <div><label>最高気温（℃）</label><input type="number" step="0.1" id="fTmax"></div>
+        <div><label>最高 発生時刻</label><input type="time" id="fTmaxT"></div>
+        <div><label>最低気温（℃）</label><input type="number" step="0.1" id="fTmin"></div>
+        <div><label>最低 発生時刻</label><input type="time" id="fTminT"></div>
+      </div>
+      <div class="form-actions"><button class="btn btn-primary" id="saveManual">この内容で保存</button></div>
+    </details>
+
+    <p class="note">
+      開くたびに気象庁アメダス姫路の10分毎観測値から当日＋過去約1週間分を取得し、自動保存して積み上げます（取得済みの確定日は再取得しません）。
+      当日分は「暫定」表示で、翌日以降に開くと確定します。手動保存した日は自動取得で上書きされません。<br>
+      最高・最低気温の発生時刻は10分毎の公開データに基づくため<strong>10分単位</strong>です。
+      tenki.jp等が表示する分単位の起時は気象庁の統計値で、一般公開されている取得手段（API）がないため、本アプリでは同じ観測元である気象庁の公開データを直接使用しています。
+    </p>
+  </section>
+</div>
+
+<script>
+const STATION='63383', KEY='himeji_heat_records_v2', PAST_DAYS=7;
+let records={};   // { 'YYYY-MM-DD': {t10,h10,t15,h15,tmax,tmaxTime,tmin,tminTime,wbgtMax,final,manual} }
+let memOnly=false, tempChart=null, humChart=null, wbgtChart=null;
+
+const $=id=>document.getElementById(id);
+const tC=v=>(v==null||isNaN(v))?'—':`${Number(v).toFixed(1)}℃`;
+const pH=v=>(v==null||isNaN(v))?'—':`${Math.round(v)}%`;
+
+/* ---------- 簡易WBGT（近似式） ---------- */
+function wbgtEst(t,rh){
+  if(t==null||rh==null)return null;
+  const e=rh/100*6.105*Math.exp(17.27*t/(237.7+t));
+  return 0.567*t+0.393*e+3.94;
+}
+function levelOf(w){
+  if(w==null)return null;
+  if(w>=31)return{name:'危険',color:'#FF2800',text:'#fff',advice:'運動は原則中止。外出を避け、涼しい室内へ。'};
+  if(w>=28)return{name:'厳重警戒',color:'#FF9600',text:'#fff',advice:'激しい運動は中止。炎天下を避け、こまめに休憩と水分補給を。'};
+  if(w>=25)return{name:'警戒',color:'#FAF500',text:'#16303A',advice:'運動や作業時は積極的に休憩を。水分・塩分補給を忘れずに。'};
+  if(w>=21)return{name:'注意',color:'#A0D2FF',text:'#16303A',advice:'激しい運動時は熱中症の危険あり。水分補給を。'};
+  return{name:'ほぼ安全',color:'#218CFF',text:'#fff',advice:'通常は熱中症の危険は小さいが、運動時は水分補給を。'};
+}
+
+/* ---------- 保存 ---------- */
+async function loadRecords(){
+  try{const r=await window.storage.get(KEY); if(r&&r.value)records=JSON.parse(r.value);}catch(e){}
+}
+async function saveRecords(){
+  if(memOnly)return;
+  try{await window.storage.set(KEY,JSON.stringify(records));}
+  catch(e){memOnly=true;setStatus('保存機能が利用できないため、このセッション内のみ記録します。',true);}
+}
+function setStatus(m,err){const s=$('status');s.textContent=m;s.className=err?'err':'';}
+
+/* ---------- 気象庁アメダスから取得 ---------- */
+const dstr=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
+async function fetchWeather(){
+  const btn=$('fetchBtn');btn.disabled=true;setStatus('気象庁アメダスから取得中…');
+  try{
+    // 最新観測時刻（JST）を取得
+    const lt=await(await fetch('https://www.jma.go.jp/bosai/amedas/data/latest_time.txt')).text();
+    const latest=new Date(lt.trim());
+    const todayStr=dstr(latest);
+
+    // 対象日リスト（未取得・未確定の日のみ）
+    const targets=[];
+    for(let i=PAST_DAYS;i>=0;i--){
+      const d=new Date(latest);d.setDate(d.getDate()-i);
+      const ds=dstr(d);
+      const rec=records[ds];
+      if(rec&&(rec.manual||(rec.final&&ds!==todayStr)))continue;
+      targets.push({date:d,ds});
+    }
+
+    let done=0,got=0;
+    for(const tg of targets){
+      setStatus(`気象庁アメダスから取得中… （${++done}/${targets.length}日）`);
+      const ymd=tg.ds.replaceAll('-','');
+      const maxBlock=(tg.ds===todayStr)?Math.floor(latest.getHours()/3)*3:21;
+      const blocks=[];
+      for(let b=0;b<=maxBlock;b+=3)blocks.push(String(b).padStart(2,'0'));
+      const results=await Promise.all(blocks.map(b=>
+        fetch(`https://www.jma.go.jp/bosai/amedas/data/point/${STATION}/${ymd}_${b}.json`)
+          .then(r=>r.ok?r.json():null).catch(()=>null)
+      ));
+      const samples=[];
+      for(const blk of results){
+        if(!blk)continue;
+        for(const key in blk){
+          if(!key.startsWith(ymd))continue;
+          const e=blk[key];
+          const val=k=>(e[k]&&e[k][1]===0&&typeof e[k][0]==='number')?e[k][0]:null;
+          samples.push({hm:`${key.slice(8,10)}:${key.slice(10,12)}`,t:val('temp'),h:val('humidity')});
+        }
+      }
+      const rec=buildRecord(samples,tg.ds!==todayStr);
+      if(rec){records[tg.ds]=rec;got++;}
+    }
+    await saveRecords();render();
+    setStatus(`取得完了（${latest.toLocaleString('ja-JP')}時点の観測値）`);
+  }catch(e){
+    setStatus('気象庁からの自動取得に失敗しました。通信環境を確認して再度お試しいただくか、手動入力をご利用ください。',true);
+  }finally{btn.disabled=false;}
+}
+
+function buildRecord(samples,isFinal){
+  const valid=samples.filter(s=>s.t!=null);
+  if(!valid.length)return null;
+  const at=hm=>samples.find(s=>s.hm===hm)||{};
+  let mx=valid[0],mn=valid[0],wMax=null;
+  for(const s of valid){
+    if(s.t>mx.t)mx=s;
+    if(s.t<mn.t)mn=s;
+    const w=wbgtEst(s.t,s.h);
+    if(w!=null&&(wMax==null||w>wMax))wMax=w;
+  }
+  return{
+    t10:at('10:00').t??null,h10:at('10:00').h??null,
+    t15:at('15:00').t??null,h15:at('15:00').h??null,
+    tmax:mx.t,tmaxTime:mx.hm,tmin:mn.t,tminTime:mn.hm,
+    wbgtMax:wMax==null?null:Math.round(wMax*10)/10,
+    latest:valid[valid.length-1],
+    final:isFinal,manual:false
+  };
+}
+
+/* ---------- 描画 ---------- */
+function render(){renderToday();renderTable();renderCharts();}
+
+function renderToday(){
+  const dates=Object.keys(records).sort();
+  if(!dates.length){$('todayCard').hidden=true;return;}
+  const d=dates[dates.length-1],r=records[d],lv=levelOf(r.wbgtMax);
+  $('todayCard').hidden=false;
+  $('todayDate').textContent=d+(r.final?'':'（暫定・観測途中）');
+  if(lv){
+    $('todayBand').style.background=lv.color;
+    $('todayLevel').textContent=`${lv.name}（推定WBGT最大 ${r.wbgtMax}）`;
+    $('todayAdvice').textContent=lv.advice;
+  }else{
+    $('todayBand').style.background='var(--line)';
+    $('todayLevel').textContent='データ不足';$('todayAdvice').textContent='';
+  }
+  const m=[];
+  m.push(['10時の気温',tC(r.t10)],['10時の湿度',pH(r.h10)]);
+  m.push(['15時の気温',tC(r.t15)],['15時の湿度',pH(r.h15)]);
+  m.push(['最高気温',tC(r.tmax),r.tmaxTime?r.tmaxTime+' 発生':'']);
+  m.push(['最低気温',tC(r.tmin),r.tminTime?r.tminTime+' 発生':'']);
+  if(!r.final&&r.latest)m.push(['直近の観測',`${tC(r.latest.t)} / ${pH(r.latest.h)}`,r.latest.hm+' 時点']);
+  $('todayMetrics').innerHTML=m.map(([l,v,sub])=>
+    `<div class="metric"><div class="l">${l}</div><div class="v">${v}</div>${sub?`<div class="sub">${sub}</div>`:''}</div>`).join('');
+}
+
+function renderTable(){
+  const tb=$('tbody');tb.innerHTML='';
+  for(const d of Object.keys(records).sort().reverse()){
+    const r=records[d],lv=levelOf(r.wbgtMax);
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td>${d}${r.final?'':' <span class="prov">暫定</span>'}${r.manual?' <span class="prov">手動</span>':''}</td>
+      <td><span class="chip" title="${lv?lv.name+'（推定WBGT '+r.wbgtMax+'）':'—'}" style="background:${lv?lv.color:'transparent'}"></span></td>
+      <td class="num sep">${tC(r.t10)}</td><td class="num">${pH(r.h10)}</td>
+      <td class="num sep">${tC(r.t15)}</td><td class="num">${pH(r.h15)}</td>
+      <td class="num sep"><strong>${tC(r.tmax)}</strong></td><td class="num">${r.tmaxTime??'—'}</td>
+      <td class="num sep">${tC(r.tmin)}</td><td class="num">${r.tminTime??'—'}</td>
+      <td><button class="del" data-d="${d}" aria-label="${d}の記録を削除">削除</button></td>`;
+    tb.appendChild(tr);
+  }
+  tb.querySelectorAll('.del').forEach(b=>b.addEventListener('click',async e=>{
+    const d=e.target.dataset.d;
+    if(confirm(d+' の記録を削除しますか？')){delete records[d];await saveRecords();render();}
+  }));
+}
+
+function renderCharts(){
+  const dates=Object.keys(records).sort();
+  const get=k=>dates.map(d=>records[d][k]);
+  const labels=dates.map(d=>`${Number(d.slice(5,7))}/${Number(d.slice(8,10))}`);
+  const common={responsive:true,maintainAspectRatio:false,
+    interaction:{mode:'index',intersect:false},
+    plugins:{legend:{labels:{boxWidth:14,font:{size:11}}}},
+    scales:{x:{grid:{display:false},ticks:{font:{size:10}}},y:{ticks:{font:{size:10}}}}};
+
+  if(tempChart)tempChart.destroy();
+  tempChart=new Chart($('tempChart'),{type:'line',data:{labels,datasets:[
+    {label:'最高気温（℃）',data:get('tmax'),borderColor:'#FF2800',backgroundColor:'rgba(255,40,0,.07)',fill:'+3',tension:.3,pointRadius:3},
+    {label:'15時（℃）',data:get('t15'),borderColor:'#FF9600',tension:.3,pointRadius:3},
+    {label:'10時（℃）',data:get('t10'),borderColor:'#E0A800',tension:.3,pointRadius:3},
+    {label:'最低気温（℃）',data:get('tmin'),borderColor:'#218CFF',tension:.3,pointRadius:3},
+  ]},options:{...common,plugins:{...common.plugins,tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${c.parsed.y==null?'—':c.parsed.y.toFixed(1)+'℃'}`}}}}});
+
+  if(humChart)humChart.destroy();
+  humChart=new Chart($('humChart'),{type:'line',data:{labels,datasets:[
+    {label:'10時 湿度（%）',data:get('h10'),borderColor:'#5B7480',borderDash:[5,3],tension:.3,pointRadius:3},
+    {label:'15時 湿度（%）',data:get('h15'),borderColor:'#16303A',tension:.3,pointRadius:3},
+  ]},options:{...common,
+    plugins:{...common.plugins,tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${c.parsed.y==null?'—':Math.round(c.parsed.y)+'%'}`}}},
+    scales:{...common.scales,y:{min:0,max:100,ticks:{font:{size:10}}}}}});
+
+  if(wbgtChart)wbgtChart.destroy();
+  const wData=get('wbgtMax');
+  wbgtChart=new Chart($('wbgtChart'),{type:'bar',data:{labels,datasets:[{
+    label:'推定WBGT 日最大',data:wData,
+    backgroundColor:wData.map(w=>{const l=levelOf(w);return l?l.color:'#DCE6EA';}),
+    borderRadius:4,maxBarThickness:36
+  }]},options:{...common,
+    plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>{
+      const w=c.parsed.y;const l=levelOf(w);
+      return w==null?'—':`推定WBGT ${w.toFixed(1)}（${l?l.name:''}）`;}}}},
+    scales:{...common.scales,y:{suggestedMin:15,suggestedMax:35,ticks:{font:{size:10}}}}}});
+}
+
+/* ---------- 手動入力 ---------- */
+$('saveManual').addEventListener('click',async()=>{
+  const d=$('fDate').value;
+  if(!d){alert('日付を入力してください');return;}
+  const num=id=>{const v=$(id).value;return v===''?null:Number(v);};
+  const t10=num('fT10'),h10=num('fH10'),t15=num('fT15'),h15=num('fH15');
+  const w=Math.max(wbgtEst(t10,h10)??-99,wbgtEst(t15,h15)??-99);
+  records[d]={t10,h10,t15,h15,
+    tmax:num('fTmax'),tmaxTime:$('fTmaxT').value||null,
+    tmin:num('fTmin'),tminTime:$('fTminT').value||null,
+    wbgtMax:w<=-99?null:Math.round(w*10)/10,
+    final:true,manual:true};
+  await saveRecords();render();
+  setStatus(d+' の記録を手動保存しました。');
+});
+
+$('fetchBtn').addEventListener('click',fetchWeather);
+
+/* ---------- 起動 ---------- */
+(async()=>{
+  await loadRecords();
+  render();
+  fetchWeather();
+})();
+</script>
+</body>
+</html>
