@@ -1,0 +1,30 @@
+name: アメダス日次記録
+
+on:
+  schedule:
+    - cron: '20 15 * * *'   # 15:20 UTC = 翌0:20 JST（前日分を確定保存）
+  workflow_dispatch:          # 手動実行も可能（初回のさかのぼり取得に使う）
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: アメダスデータ収集
+        run: node scripts/collect.mjs
+
+      - name: 変更をコミット
+        run: |
+          git config user.name "amedas-bot"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/records.json
+          git diff --cached --quiet || git commit -m "アメダス記録更新 $(TZ=Asia/Tokyo date +'%Y-%m-%d')"
+          git push
