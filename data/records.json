@@ -250,5 +250,17 @@
   "tminTime": "05:50",
   "wbgtMax": 34.4,
   "final": true
+ },
+ "2026-09-03": {
+  "t10": 28.8,
+  "h10": 76,
+  "t15": 25.1,
+  "h15": 89,
+  "tmax": 29.5,
+  "tmaxTime": "11:00",
+  "tmin": 23.4,
+  "tminTime": "23:40",
+  "wbgtMax": 32.8,
+  "final": true
  }
 }
