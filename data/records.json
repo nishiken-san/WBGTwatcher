@@ -1090,5 +1090,17 @@
   "tminTime": "06:20",
   "wbgtMax": 17.8,
   "final": true
+ },
+ "2026-11-12": {
+  "t10": 15.3,
+  "h10": 67,
+  "t15": 17.8,
+  "h15": 61,
+  "tmax": 18.2,
+  "tmaxTime": "12:00",
+  "tmin": 8.3,
+  "tminTime": "06:40",
+  "wbgtMax": 19.4,
+  "final": true
  }
 }
